@@ -6,15 +6,20 @@ from sklearn import svm
 import matplotlib.pyplot as plt
 
 df = pd.read_csv('D:\可爱臭鸭鸭\支持向量机数据.csv')#需要添加目标文件目录
-train_data = np.array(df.iloc[:,0:3])
+all_data = np.array(df.iloc[:,0:3])
 attributeMap={}
 attributeMap['no']=-1
 attributeMap['yes']=1
 #============数据化=================
-for i in range(len(train_data)):
-        train_data[i,2]=attributeMap[train_data[i,2]]
+for i in range(len(all_data)):
+        all_data[i,2]=attributeMap[all_data[i,2]]
+train_data=all_data[0:299,:]
+test_data= all_data[300:len(all_data),:]
+
 train_label=train_data[:,2]
+test_label=test_data[:,2]
 train_data=np.delete(train_data,2,1)#第三个数1表示列，0表示行
+test_data=np.delete(test_data,2,1)#第三个数1表示列，0表示行
 m,n=np.shape(train_data)
 
 
@@ -48,6 +53,8 @@ class optStruct:
         self.E = np.zeros((self.count,1))
         self.b = 0
         self.K = np.zeros((self.count,self.count)) #核函数的计算结果
+        self.first_index_old=None
+        self.second_index_old = None
         for i in range(self.count):
             for j in range(self.count):
                self.K[i,j] = kernelTrans(self.data[i], self.data[j], kTup)
@@ -102,11 +109,16 @@ def innerL(i, oS):
 
     #如果不满足KT条件=================
     Fit_KT=True
+    '''#理论上
     if (oS.alphas[i]==0 and oS.label[i]*calcgk(oS, i)<1):
         Fit_KT = False
     elif (oS.alphas[i]>0 and oS.alphas[i]<oS.C and oS.label[i]*calcgk(oS, i)!=1):
         Fit_KT = False
     elif (oS.alphas[i]==oS.C and oS.label[i]*calcgk(oS, i)>1):
+        Fit_KT = False
+    '''
+    r=oS.E[i]*oS.label[i]
+    if(r<oS.tol and oS.alphas[i]<oS.C)or(r>oS.tol and oS.alphas[i]>oS.C):
         Fit_KT = False
     return Fit_KT
 
@@ -121,69 +133,75 @@ def smoP(train_data, train_label, C, toler, maxIter,kTup='lin'):
     # ==================
     iter = 0#迭代初始化
     # 迭代开始===============
+
+
     while iter<maxIter:
+        #更新支持向量集合===========
         all_Support_Vector=[]
-        satisfy_Support_Vector=[]
-        satisfy_index=0
-        #=========找出所有的支持向量=========================
         for i in range(oS.count):
-            if oS.alphas[i]>0 and oS.alphas[i]<oS.C:
-                all_Support_Vector.append(i)
-        # =========如果存在支持向量=========================
-        if len(all_Support_Vector)!=0:
+          if  oS.alphas[i] > 0 and oS.alphas[i] < oS.C:
+              all_Support_Vector.append(i)
+        defy_KT_Vector=[]
+
+        #=========找出所有不满足KT的集合=========================
+        first_index = None
+        for i in range(oS.count):
+            if innerL(i,oS)==False:
+                defy_KT_Vector.append(i)
+        # 如果有支持向量=======
+        if len(all_Support_Vector)>0:
           for sv in all_Support_Vector:
-            fit_or_not=innerL(sv,oS)
-            if fit_or_not==False:
-                satisfy_Support_Vector.append(sv)
-          # =========如果支持向量中有不满足KT条件的=========================
-          if(len(satisfy_Support_Vector)!=0):
-              num = int(np.random.uniform(0, len(satisfy_Support_Vector)))
-              satisfy_index=satisfy_Support_Vector[num]
-              update = True
-          # =========如果支持向量中没有不满足KT条件的
-          elif(len(satisfy_Support_Vector)==0):
-              satisfy_all_vector=[]
-              for i in range(oS.count):
-                fit_or_not = innerL(i, oS)
-                if fit_or_not == False:
-                    satisfy_all_vector.append(i)
-              if(len(satisfy_all_vector)!=0):
-                  num = int(np.random.uniform(0, len(satisfy_all_vector)))
-                  satisfy_index = satisfy_all_vector[num]
-                  update = True
+              if innerL(sv,oS)==False:
+                first_index=sv
+                break
+          # 如果支持向量中没有违反kt条件的=======
+          #从整个数据集进行寻找=================
+        if first_index==None and len(defy_KT_Vector)>0 :
+           num=np.random.randint(0,len(defy_KT_Vector))
+           first_index=defy_KT_Vector[num]
         else:
-            satisfy_all_vector = []
-            for i in range(oS.count):
-                fit_or_not = innerL(i, oS)
-                if fit_or_not == False:
-                    satisfy_all_vector.append(i)
-            if (len(satisfy_all_vector) != 0):
-                num = int(np.random.uniform(0, len(satisfy_all_vector)))
-                satisfy_index = satisfy_all_vector[num]
-                update=True
-        #=========如果实在找不到那就随机一个吧
-        if update==False:
-            satisfy_index=int(np.random.uniform(0,oS.count))
-        # 找到了第一个变量=====================
-        first_index=satisfy_index
-        second_index_list=[]
-        E1=calcEk(oS,first_index)
+            num = np.random.randint(0, oS.count)
+            first_index = num
+        #得到了a1在寻找a2============================
         without=[]
-        for j in range(oS.count):
-            if first_index!=j:
-                without.append(j)
         D_value=[]
-        for j in without:
-            value=np.abs(E1-oS.E[j])
+        for i in range(oS.count):
+            if i != first_index:
+                without.append(i)
+        #without为a1以外的集合============================
+        for i in range(len(without)):
+            value=np.abs(oS.E[i]-oS.E[first_index])
             D_value.append(value)
-        for i in range(len(D_value)):
-            if D_value[i]==np.max(D_value):
-                second_index_list.append(without[i])
-        num=int(np.random.uniform(0, len(second_index_list)))
-        second_index = second_index_list[num]
+        index=np.argmax(D_value)
+        second_index=without[index]
+        '''
+        # 如果和上一步相同，再找，从0<a<c的子集中找=======
+        if second_index==oS.second_index_old:
+            Support_Vector=[]
+            for i in without:
+                if oS.alphas[i] > 0 and oS.alphas[i] < oS.C:
+                    Support_Vector.append(i)
+            index = np.random.randint(0,len(Support_Vector))
+            second_index=without[index]
+        '''
+        #=========如果和上一步相同,j从支持向量中随机========
+        if second_index == oS.second_index_old:
+            Support_Vector = []
+            for i in without:
+                if oS.alphas[i] > 0 and oS.alphas[i] < oS.C:
+                    Support_Vector.append(i)
+            index = np.random.randint(0, len(Support_Vector))
+            second_index = without[index]
+
+        oS.first_index_old  = first_index
+        oS.second_index_old = second_index
+
         i=first_index
         j=second_index
-        print('SMO的两个向量是:'+str(i)+','+str(j))
+        print('不满足KT条件的个数为：' + str(len(defy_KT_Vector)))
+        print('选取优化的两个alpha为:'+str(i)+'+'+str(j))
+
+
         #求解两个变量的最优化问题============================================
         Ei = calcEk(oS, i)
         Ej = calcEk(oS, j)
@@ -197,27 +215,25 @@ def smoP(train_data, train_label, C, toler, maxIter,kTup='lin'):
         else:
             L = max(0, alphaJold - alphaIold - oS.C)
             H = min(oS.C,alphaJold - alphaIold)
-            '''
-        if L == H and iter!=1:
-            print("L==H")
-            return 0
-            '''
         eta = oS.K[i, i] + oS.K[j, j] - 2.0 * oS.K[i, j]
-        aj_new_unc = alphaJold + oS.label[j] * (Ei - Ej) / eta
-        # 选取ajnew的值=============================
-        ajnew = 0
-        if aj_new_unc > H:
-            ajnew = H
-        elif aj_new_unc <= H and aj_new_unc >= L:
-            ajnew = aj_new_unc
-        elif aj_new_unc < L:
-            ajnew = L
+        if eta>0:  #https://www.cnblogs.com/xxrxxr/p/7538430.html
+           aj_new_unc = alphaJold + oS.label[j] * (Ei - Ej) / eta
+           # 选取ajnew的值=============================
+           ajnew = 0
+           if aj_new_unc > H:
+               ajnew = H
+           elif aj_new_unc <= H and aj_new_unc >= L:
+               ajnew = aj_new_unc
+           elif aj_new_unc < L:
+               ajnew = L
+        else:#(eta<=0)
+               ajnew = np.min(H,L)
+
+        #更新a2====================================
         oS.alphas[j] = ajnew
-        '''
-        if (abs(oS.alphas[j] - alphaJold) < 0.00001):
-            print("j not moving enough")
-            return 0
-        '''
+
+
+        # 更新a1====================================
         ainew = alphaIold + oS.label[i] * oS.label[j] * (alphaJold - ajnew)
         oS.alphas[i] = ainew
         # 更新阈值==================================================
@@ -234,36 +250,18 @@ def smoP(train_data, train_label, C, toler, maxIter,kTup='lin'):
         # 更新对应的Ei值===================
         oS.E[i] = cal_svEk(oS, i)
         oS.E[j] = cal_svEk(oS, j)
-        #停机条件判断===================
-        print('支持向量集为：' + str(all_Support_Vector))
-        '''
-        sum=0
-        stop=False
-        for i in range(oS.count):
-            sum+=oS.alphas[i]*oS.label[i]
-        if sum==0:
-            ga=oS.label[i]*calcgk(oS,i)
-            if ga>=1 and oS.alphas[i]==0:
-                stop=True
-            elif ga==1 and oS.alphas[i]>0 and oS.alphas[i]<oS.C:
-                stop=True
-            elif ga <= 1 and oS.alphas[i] == oS.C:
-                stop = True
-        if stop==True:
-            print('达到停机条件')
-            break
-        '''
         iter+=1
     print('循环结束，总共循环了'+str(iter+1)+'次')
     return oS.alphas,oS.b,oS.K,all_Support_Vector
 
 
-alpha,beta,K,sv=smoP(train_data, train_label,10, 0.0001, 2000,'lin')
+alpha,beta,K,sv=smoP(train_data, train_label, 100, 0.001, 800,'lin')
+
 result=[]
-for i in range(len(train_data)):
+for i in range(len(test_data)):
     sum=0
     for j in range(len(train_data)):
-        sum+=alpha[j]*train_label[j]*K[i,j]
+        sum+=alpha[j]*train_label[j]*kernelTrans(test_data[i],train_data[j],'lin')
     sum+=beta
     if sum>0:
         sum=1
@@ -272,15 +270,29 @@ for i in range(len(train_data)):
     result.append(sum)
 
 
-print('预测值为：'+str(result))
-print('真实值为：'+str(train_label))
-D=train_label-result
+D=test_label-result
 sum=0
-for i in range(len(train_data)):
-    if(train_label[i]!=result[i]):
+for i in range(len(test_data)):
+    if(test_label[i]!=result[i]):
         sum+=1
-e=sum/len(train_label)
+e=sum/len(test_label)
+print(sv)
 print('正确率为：'+str((100-e*100))+'%')
+#散点图绘制=====================================
+plt.title('the result')
 
+plt.xlabel('x1')
+plt.ylabel('x2')
+for i in range(len(test_data)):
+    if result[i]==1:
+       plt.scatter(test_data[i,0],test_data[i,1], s=20, c="#ff1212", marker='+')
+    else:
+       plt.scatter(test_data[i, 0],test_data[i,1], s=20, c="#cca110", marker='o')
+# x: x轴坐标
+# y：y轴坐标
+# s：点的大小/粗细 标量或array_like 默认是 rcParams['lines.markersize'] ** 2
+# c: 点的颜色
+# marker: 标记的样式 默认是 'o'
+plt.show()
 
 
